@@ -3,6 +3,8 @@ const router = express.Router();
 const pool = require('./db');
 const moment = require('moment');
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const SECRET = 'pokolokotestsecret'
 
 const createTableIfNotExists = async (tableName, createTableSQL) => {
     try {
@@ -98,161 +100,15 @@ initializeDatabase().catch(err => {
     process.exit(1);
 });
 
-router.post('/login', (req, res) => {
-    if (req.body.email === 'lucassousasens@gmail.com' && req.body.password === '123') {
-        return res.json({ auth: true })
-    }
-});
+function verifyJWT(req, res, next) {
+    const token = req.headers['x-access-token'];
+    jwt.verify(token, SECRET, (err, decoded) => {
+        if (err) return res.status(401).end();
 
-router.get('/selecionado', (req, res) => {
-    pool.query('SELECT * FROM selecionado', (error, results) => {
-        if (error) {
-            console.error('Erro ao obter fechamentos mensais:', error);
-            return res.status(500).json({ error: error.message });
-        }
-        res.json(results);
+        req.userId = decoded.userId
+        next();
     });
-});
-
-router.put('/selecionado', (req, res) => {
-    const { ano, mes } = req.body;
-
-    if (!ano || !mes) {
-        return res.status(400).json({ error: 'Ano e mês são obrigatórios' });
-    }
-
-    pool.query('UPDATE selecionado SET ano = ?, mes = ?', [ano, mes], (error, results) => {
-        if (error) {
-            console.error('Erro ao atualizar fechamentos mensais:', error);
-            return res.status(500).json({ error: error.message });
-        }
-        res.json({ message: 'Dados atualizados com sucesso' });
-    });
-});
-
-router.get('/fechamentos', (req, res) => {
-    pool.query('SELECT * FROM fechamento_mensal', (error, results) => {
-        if (error) {
-            console.error('Erro ao obter fechamentos mensais:', error);
-            return res.status(500).json({ error: error.message });
-        }
-        results.forEach(row => {
-            updateTotal(row.id);
-        });
-        res.json(results);
-    });
-});
-
-router.put('/fechamentos/:id/dia/:day', (req, res) => {
-    const fechamentoId = req.params.id;
-    const day = req.params.day;
-    const { value } = req.body;
-
-    pool.query(
-        'SELECT valores_diarios FROM fechamento_mensal WHERE id = ?',
-        [fechamentoId],
-        (error, results) => {
-            if (error) {
-                return res.status(500).json({ error: error.message });
-            }
-
-            if (results.length === 0) {
-                return res.status(404).json({ error: 'Fechamento mensal não encontrado' });
-            }
-
-            const valoresDiarios = results[0].valores_diarios;
-
-            const dayIndex = day - 1;
-            if (valoresDiarios[dayIndex]) {
-                valoresDiarios[dayIndex].value = value;
-            } else {
-                valoresDiarios[dayIndex] = { day, value };
-            }
-
-            pool.query(
-                'UPDATE fechamento_mensal SET valores_diarios = ? WHERE id = ?',
-                [JSON.stringify(valoresDiarios), fechamentoId],
-                (error, results) => {
-                    if (error) {
-                        return res.status(500).json({ error: error.message });
-                    }
-                    res.json({ message: 'Valor adicionado com sucesso' });
-                }
-            );
-        }
-    );
-});
-
-router.post('/fechamentos', async (req, res) => {
-    const { years } = req.body;
-    
-    const year = Object.keys(years)[0];
-    const month = Object.keys(years[year].months)[0];
-    const days_worked = years[year].months[month].days_worked;
-    const max_goal = years[year].months[month].max_goal;
-    const min_goal = years[year].months[month].min_goal;
-    const day_values = years[year].months[month].day_values;
-
-    const valoresDiarios = Array.from({ length: 30 }, (_, index) => {
-        const dayData = day_values.find(day => day.day === index + 1);
-        return { day: index + 1, value: dayData ? dayData.value : 0 };
-    });
-
-    const sqlInsert = `
-        INSERT INTO fechamento_mensal (ano, mes, dias_trabalhados, meta_maxima, meta_minima, valores_diarios, soma_valores)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    `;
-
-    const values = [
-        year,
-        month,
-        days_worked,
-        max_goal,
-        min_goal,
-        JSON.stringify(valoresDiarios),
-        somarValores(valoresDiarios)
-    ];
-
-    try {
-        await pool.promise().query(sqlInsert, values);
-        res.json({ message: 'Registro de fechamento mensal criado com sucesso' });
-    } catch (error) {
-        console.error('Erro ao inserir novo registro:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-router.put('/fechamentos/:id/meta', (req, res) => {
-    const fechamentoId = req.params.id;
-    const { meta_maxima } = req.body;
-
-    pool.query(
-        'UPDATE fechamento_mensal SET meta_maxima = ? WHERE id = ?',
-        [meta_maxima, fechamentoId],
-        (error, results) => {
-            if (error) {
-                return res.status(500).json({ error: error.message });
-            }
-            res.json({ message: 'Meta atualizada com sucesso' });
-        }
-    );
-});
-
-router.put('/fechamentos/:id/dias-trabalhados', (req, res) => {
-    const fechamentoId = req.params.id;
-    const { dias_trabalhados } = req.body;
-
-    pool.query(
-        'UPDATE fechamento_mensal SET dias_trabalhados = ? WHERE id = ?',
-        [dias_trabalhados, fechamentoId],
-        (error, results) => {
-            if (error) {
-                return res.status(500).json({ error: error.message });
-            }
-            res.json({ message: 'Dias trabalhados atualizados com sucesso' });
-        }
-    );
-});
+}
 
 function somarValores(valores) {
     let soma = 0;
@@ -292,5 +148,182 @@ function updateTotal(fechamentoId) {
         }
     );
 }
+
+router.get('/protected', verifyJWT, (req, res) => {
+    res.status(200).end();
+});
+
+router.post('/login', async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const [rows, fields] = await pool.promise().query('SELECT * FROM users WHERE email = ?', [email]);
+    
+        if (rows.length === 0) {
+            return res.status(401).end();
+        }
+        const user = rows[0];
+    
+        const match = await bcrypt.compare(password, user.password);
+        if (match) {
+            const token = jwt.sign({userId: user.id}, SECRET, { expiresIn: 300 });
+            return res.json({ auth: true, token });
+        } else {
+            return res.status(401).end();
+        }
+    } catch (error) {
+        return res.status(500).end();
+    }
+});
+
+router.get('/selecionado', verifyJWT, (req, res) => {
+    pool.query('SELECT * FROM selecionado', (error, results) => {
+        if (error) {
+            console.error('Erro ao obter fechamentos mensais:', error);
+            return res.status(500).json({ error: error.message });
+        }
+        res.json(results);
+    });
+});
+
+router.put('/selecionado', verifyJWT, (req, res) => {
+    const { ano, mes } = req.body;
+
+    if (!ano || !mes) {
+        return res.status(400).json({ error: 'Ano e mês são obrigatórios' });
+    }
+
+    pool.query('UPDATE selecionado SET ano = ?, mes = ?', [ano, mes], (error, results) => {
+        if (error) {
+            console.error('Erro ao atualizar fechamentos mensais:', error);
+            return res.status(500).json({ error: error.message });
+        }
+        res.json({ message: 'Dados atualizados com sucesso' });
+    });
+});
+
+router.get('/fechamentos', verifyJWT, (req, res) => {
+    pool.query('SELECT * FROM fechamento_mensal', (error, results) => {
+        if (error) {
+            console.error('Erro ao obter fechamentos mensais:', error);
+            return res.status(500).json({ error: error.message });
+        }
+        results.forEach(row => {
+            updateTotal(row.id);
+        });
+        res.json(results);
+    });
+});
+
+router.put('/fechamentos/:id/dia/:day', verifyJWT, (req, res) => {
+    const fechamentoId = req.params.id;
+    const day = req.params.day;
+    const { value } = req.body;
+
+    pool.query(
+        'SELECT valores_diarios FROM fechamento_mensal WHERE id = ?',
+        [fechamentoId],
+        (error, results) => {
+            if (error) {
+                return res.status(500).json({ error: error.message });
+            }
+
+            if (results.length === 0) {
+                return res.status(404).json({ error: 'Fechamento mensal não encontrado' });
+            }
+
+            const valoresDiarios = results[0].valores_diarios;
+
+            const dayIndex = day - 1;
+            if (valoresDiarios[dayIndex]) {
+                valoresDiarios[dayIndex].value = value;
+            } else {
+                valoresDiarios[dayIndex] = { day, value };
+            }
+
+            pool.query(
+                'UPDATE fechamento_mensal SET valores_diarios = ? WHERE id = ?',
+                [JSON.stringify(valoresDiarios), fechamentoId],
+                (error, results) => {
+                    if (error) {
+                        return res.status(500).json({ error: error.message });
+                    }
+                    res.json({ message: 'Valor adicionado com sucesso' });
+                }
+            );
+        }
+    );
+});
+
+router.post('/fechamentos', verifyJWT, async (req, res) => {
+    const { years } = req.body;
+    
+    const year = Object.keys(years)[0];
+    const month = Object.keys(years[year].months)[0];
+    const days_worked = years[year].months[month].days_worked;
+    const max_goal = years[year].months[month].max_goal;
+    const min_goal = years[year].months[month].min_goal;
+    const day_values = years[year].months[month].day_values;
+
+    const valoresDiarios = Array.from({ length: 30 }, (_, index) => {
+        const dayData = day_values.find(day => day.day === index + 1);
+        return { day: index + 1, value: dayData ? dayData.value : 0 };
+    });
+
+    const sqlInsert = `
+        INSERT INTO fechamento_mensal (ano, mes, dias_trabalhados, meta_maxima, meta_minima, valores_diarios, soma_valores)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const values = [
+        year,
+        month,
+        days_worked,
+        max_goal,
+        min_goal,
+        JSON.stringify(valoresDiarios),
+        somarValores(valoresDiarios)
+    ];
+
+    try {
+        await pool.promise().query(sqlInsert, values);
+        res.json({ message: 'Registro de fechamento mensal criado com sucesso' });
+    } catch (error) {
+        console.error('Erro ao inserir novo registro:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.put('/fechamentos/:id/meta', verifyJWT, (req, res) => {
+    const fechamentoId = req.params.id;
+    const { meta_maxima } = req.body;
+
+    pool.query(
+        'UPDATE fechamento_mensal SET meta_maxima = ? WHERE id = ?',
+        [meta_maxima, fechamentoId],
+        (error, results) => {
+            if (error) {
+                return res.status(500).json({ error: error.message });
+            }
+            res.json({ message: 'Meta atualizada com sucesso' });
+        }
+    );
+});
+
+router.put('/fechamentos/:id/dias-trabalhados', verifyJWT, (req, res) => {
+    const fechamentoId = req.params.id;
+    const { dias_trabalhados } = req.body;
+
+    pool.query(
+        'UPDATE fechamento_mensal SET dias_trabalhados = ? WHERE id = ?',
+        [dias_trabalhados, fechamentoId],
+        (error, results) => {
+            if (error) {
+                return res.status(500).json({ error: error.message });
+            }
+            res.json({ message: 'Dias trabalhados atualizados com sucesso' });
+        }
+    );
+});
+
 
 module.exports = router;
