@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('./db');
 const moment = require('moment');
+const bcrypt = require('bcrypt');
 
 const createTableIfNotExists = async (tableName, createTableSQL) => {
     try {
@@ -95,6 +96,12 @@ const initializeDatabase = async () => {
 initializeDatabase().catch(err => {
     console.error('Erro ao inicializar banco de dados:', err);
     process.exit(1);
+});
+
+router.post('/login', (req, res) => {
+    if (req.body.email === 'lucassousasens@gmail.com' && req.body.password === '123') {
+        return res.json({ auth: true })
+    }
 });
 
 router.get('/selecionado', (req, res) => {
