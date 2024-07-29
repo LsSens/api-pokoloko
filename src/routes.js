@@ -181,6 +181,28 @@ router.post('/login', async (req, res) => {
     }
 });
 
+router.get('/me', verifyJWT, async (req, res) => {
+    try {
+        const userId = req.userId;
+        
+        const [rows] = await pool.promise().query('SELECT id, email, user FROM users WHERE id = ?', [userId]);
+        
+        if (rows.length === 0) {
+            return res.status(404).json({ message: 'Usuário não encontrado' });
+        }
+        
+        const user = rows[0];
+        res.json({
+            id: user.id,
+            email: user.email,
+            nome: user.user
+        });
+    } catch (error) {
+        console.error('Erro ao obter dados do usuário:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 router.get('/selecionado', verifyJWT, (req, res) => {
     pool.query('SELECT * FROM selecionado', (error, results) => {
         if (error) {
