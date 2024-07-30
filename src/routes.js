@@ -151,6 +151,13 @@ function updateTotal(fechamentoId) {
 
 router.get('/protected', verifyJWT, (req, res) => {
     res.status(200).end();
+    return res.json({ auth: true, token,
+        user: {
+            id: user.id,
+            email: user.email,
+            nome: user.user
+        }
+    });
 });
 
 router.post('/login', async (req, res) => {
