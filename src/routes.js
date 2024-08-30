@@ -333,8 +333,7 @@ router.put('/fechamentos/:id/meta', verifyJWT, (req, res) => {
     const { meta_maxima, meta_minima } = req.body;
 
     pool.query(
-        'UPDATE fechamento_mensal SET meta_maxima = ? WHERE id = ?',
-        'UPDATE fechamento_mensal SET meta_minima = ? WHERE id = ?',
+        'UPDATE fechamento_mensal SET meta_maxima = ?, meta_minima = ? WHERE id = ?',
         [meta_maxima, meta_minima, fechamentoId],
         (error, results) => {
             if (error) {
