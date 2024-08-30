@@ -5,6 +5,8 @@ const moment = require('moment');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const SECRET = 'pokolokotestsecret'
+const crypto = require('crypto');
+const nodemailer = require('nodemailer');
 
 const createTableIfNotExists = async (tableName, createTableSQL) => {
     try {
@@ -360,5 +362,94 @@ router.put('/fechamentos/:id/dias-trabalhados', verifyJWT, (req, res) => {
     );
 });
 
+const transporter = nodemailer.createTransport({
+    host: 'smtp.titan.hostgator.com.br', // Servidor SMTP do HostGator
+    port: 587, // Porta para TLS
+    secure: false, // Use true para SSL, false para TLS
+    auth: {
+        user: 'admin@lucassens.com.br', // Seu e-mail
+        pass: 'pF(3}&=yP<eK^:7' // Sua senha de e-mail
+    }
+});
+
+router.post('/forgot-password', async (req, res) => {
+    const { email } = req.body;
+
+    if (!email) {
+        return res.status(400).json({ error: 'E-mail é obrigatório' });
+    }
+
+    try {
+        const [rows] = await pool.promise().query('SELECT id FROM users WHERE email = ?', [email]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'E-mail não encontrado' });
+        }
+
+        const userId = rows[0].id;
+        const code = crypto.randomInt(100000, 999999); // Gera um código numérico de 6 dígitos
+        const expiration = new Date(Date.now() + 3600000); // Código expira em 1 hora
+
+        // Armazena o código e a expiração no banco de dados
+        await pool.promise().query(
+            'INSERT INTO password_reset_codes (user_id, code, expires_at) VALUES (?, ?, ?)',
+            [userId, code, expiration]
+        );
+
+        // Envia o e-mail com o código de verificação
+        const mailOptions = {
+            from: 'admin@lucassens.com.br',
+            to: email,
+            subject: 'Código de Redefinição de Senha',
+            text: `Você solicitou a redefinição da sua senha. Use o código abaixo para redefinir sua senha:\n\nCódigo: ${code}`
+        };
+
+        await transporter.sendMail(mailOptions);
+
+        res.json({ message: 'Código de redefinição de senha enviado com sucesso' });
+
+    } catch (error) {
+        console.error('Erro ao processar a solicitação de redefinição de senha:', error);
+        res.status(500).json({ error: 'Erro ao processar a solicitação' });
+    }
+});
+
+router.post('/reset-password', async (req, res) => {
+    const { email, code, newPassword } = req.body;
+
+    if (!email || !code || !newPassword) {
+        return res.status(400).json({ error: 'E-mail, código e nova senha são obrigatórios' });
+    }
+
+    try {
+        // Verifica o código e a expiração
+        const [rows] = await pool.promise().query(
+            'SELECT user_id FROM password_reset_codes WHERE code = ? AND expires_at > NOW()',
+            [code]
+        );
+
+        if (rows.length === 0) {
+            return res.status(400).json({ error: 'Código inválido ou expirado' });
+        }
+
+        const userId = rows[0].user_id;
+
+        // Atualiza a senha do usuário
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        await pool.promise().query(
+            'UPDATE users SET password = ? WHERE id = ?',
+            [hashedPassword, userId]
+        );
+
+        // Remove o código após a redefinição
+        await pool.promise().query('DELETE FROM password_reset_codes WHERE code = ?', [code]);
+
+        res.json({ message: 'Senha redefinida com sucesso' });
+
+    } catch (error) {
+        console.error('Erro ao redefinir a senha:', error);
+        res.status(500).json({ error: 'Erro ao redefinir a senha' });
+    }
+});
 
 module.exports = router;
