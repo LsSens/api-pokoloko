@@ -6,7 +6,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const SECRET = 'pokolokotestsecret'
 const crypto = require('crypto');
-const nodemailer = require('nodemailer');
+const axios = require('axios');
 
 const createTableIfNotExists = async (tableName, createTableSQL) => {
     try {
@@ -362,16 +362,6 @@ router.put('/fechamentos/:id/dias-trabalhados', verifyJWT, (req, res) => {
     );
 });
 
-const transporter = nodemailer.createTransport({
-    host: 'smtp.titan.hostgator.com.br', // Servidor SMTP do HostGator
-    port: 587, // Porta para TLS
-    secure: false, // Use true para SSL, false para TLS
-    auth: {
-        user: 'admin@lucassens.com.br', // Seu e-mail
-        pass: 'pF(3}&=yP<eK^:7' // Sua senha de e-mail
-    }
-});
-
 router.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
 
@@ -397,16 +387,23 @@ router.post('/forgot-password', async (req, res) => {
         );
 
         // Envia o e-mail com o código de verificação
-        const mailOptions = {
-            from: 'admin@lucassens.com.br',
-            to: email,
+        const mailData = {
+            api_key: 'api-B5E70DAFF5BF4574886AEF78006705EF', // Substitua pela sua chave de API
+            to: [email],
+            sender: 'admin@lucassens.com.br',
             subject: 'Código de Redefinição de Senha',
-            text: `Você solicitou a redefinição da sua senha. Use o código abaixo para redefinir sua senha:\n\nCódigo: ${code}`
+            text_body: `Você solicitou a redefinição da sua senha. Use o código abaixo para redefinir sua senha:\n\nCódigo: ${code}`,
         };
 
-        await transporter.sendMail(mailOptions);
-
-        res.json({ message: 'Código de redefinição de senha enviado com sucesso' });
+        // Envia o e-mail via SMTP2GO API
+        try {
+            const response = await axios.post('https://api.smtp2go.com/v3/email/send', mailData);
+            console.log('Email enviado:', response.data);
+            res.json({ message: `Código de redefinição de senha enviado com sucesso` });
+        } catch (error) {
+            console.error('Erro ao enviar email:', error.response ? error.response.data : error.message);
+            res.status(500).json({ error: 'Erro ao enviar o código de redefinição de senha' });
+        }
 
     } catch (error) {
         console.error('Erro ao processar a solicitação de redefinição de senha:', error);
